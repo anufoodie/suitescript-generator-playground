@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SuiteScript IR Builder</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0d1117; color:#c9d1d9; height:100vh; overflow:hidden; }
+.app { display:grid; grid-template-columns:380px 1fr; grid-template-rows:48px 1fr; height:100vh; }
+.topbar { grid-column:1/-1; background:#161b22; border-bottom:1px solid #30363d; display:flex; align-items:center; padding:0 16px; gap:12px; }
+.topbar h1 { font-size:14px; font-weight:600; color:#58a6ff; }
+.topbar .presets { display:flex; gap:6px; margin-left:auto; }
+.preset-btn { background:#21262d; border:1px solid #30363d; color:#8b949e; padding:5px 12px; border-radius:6px; font-size:12px; cursor:pointer; transition:all .15s; }
+.preset-btn:hover { border-color:#58a6ff; color:#c9d1d9; }
+.preset-btn.active { background:#1f6feb33; border-color:#58a6ff; color:#58a6ff; }
+.sidebar { background:#0d1117; border-right:1px solid #30363d; overflow-y:auto; padding:12px; }
+.sidebar::-webkit-scrollbar { width:6px; }
+.sidebar::-webkit-scrollbar-thumb { background:#30363d; border-radius:3px; }
+.section { margin-bottom:12px; background:#161b22; border:1px solid #30363d; border-radius:8px; overflow:hidden; }
+.section-header { padding:10px 12px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:600; color:#c9d1d9; user-select:none; }
+.section-header:hover { background:#1c2128; }
+.section-header .chevron { color:#484f58; font-size:10px; transition:transform .2s; }
+.section-header .chevron.open { transform:rotate(90deg); }
+.section-body { padding:10px 12px; border-top:1px solid #21262d; display:none; }
+.section-body.open { display:block; }
+.form-row { margin-bottom:8px; }
+.form-row label { display:block; font-size:11px; color:#8b949e; margin-bottom:3px; text-transform:uppercase; letter-spacing:.5px; }
+.form-row input, .form-row select { width:100%; background:#0d1117; border:1px solid #30363d; color:#c9d1d9; padding:6px 8px; border-radius:4px; font-size:13px; font-family:inherit; }
+.form-row input:focus, .form-row select:focus { outline:none; border-color:#58a6ff; }
+.form-row-inline { display:flex; gap:8px; align-items:end; }
+.form-row-inline .form-row { flex:1; margin-bottom:0; }
+.toggle-row { display:flex; align-items:center; justify-content:space-between; padding:4px 0; }
+.toggle-row label { font-size:12px; color:#c9d1d9; }
+.toggle { position:relative; width:36px; height:20px; cursor:pointer; }
+.toggle input { opacity:0; width:0; height:0; }
+.toggle .slider { position:absolute; inset:0; background:#30363d; border-radius:10px; transition:.2s; }
+.toggle .slider:before { content:''; position:absolute; width:16px; height:16px; left:2px; bottom:2px; background:#8b949e; border-radius:50%; transition:.2s; }
+.toggle input:checked + .slider { background:#1f6feb; }
+.toggle input:checked + .slider:before { transform:translateX(16px); background:#fff; }
+.chip-row { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+.chip { display:flex; align-items:center; gap:4px; background:#21262d; border:1px solid #30363d; padding:3px 8px; border-radius:12px; font-size:11px; color:#c9d1d9; }
+.chip .remove { cursor:pointer; color:#f85149; font-size:14px; line-height:1; }
+.chip .remove:hover { color:#ff7b72; }
+.chip-input { display:flex; gap:4px; margin-top:6px; }
+.chip-input input { flex:1; }
+.chip-input button { background:#238636; border:none; color:#fff; padding:4px 10px; border-radius:4px; font-size:12px; cursor:pointer; }
+.check-row { display:flex; align-items:center; gap:8px; padding:3px 0; }
+.check-row input[type="checkbox"] { accent-color:#58a6ff; }
+.check-row label { font-size:12px; color:#c9d1d9; cursor:pointer; }
+.schema-field { background:#0d1117; border:1px solid #21262d; border-radius:6px; padding:8px; margin-bottom:6px; position:relative; }
+.schema-field .field-header { display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+.schema-field .field-header input { font-size:12px; padding:4px 6px; }
+.schema-field .field-header select { font-size:12px; padding:4px 6px; width:auto; }
+.schema-field .field-options { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.schema-field .field-options label { font-size:11px; color:#8b949e; }
+.remove-btn { background:none; border:none; color:#f85149; cursor:pointer; font-size:16px; padding:2px; line-height:1; }
+.remove-btn:hover { color:#ff7b72; }
+.add-btn { background:none; border:1px dashed #30363d; color:#8b949e; padding:6px; border-radius:6px; font-size:12px; cursor:pointer; width:100%; text-align:center; margin-top:4px; }
+.add-btn:hover { border-color:#58a6ff; color:#58a6ff; }
+.step-card { background:#0d1117; border:1px solid #21262d; border-radius:6px; margin-bottom:6px; overflow:hidden; }
+.step-header { display:flex; align-items:center; gap:8px; padding:8px; cursor:grab; }
+.step-header .step-num { background:#30363d; color:#8b949e; font-size:10px; font-weight:700; width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+.step-header .step-type { font-size:12px; font-family:'SF Mono',Monaco,Consolas,monospace; color:#79c0ff; flex:1; }
+.step-header .step-label { font-size:11px; color:#8b949e; }
+.step-params { padding:6px 8px 8px 36px; border-top:1px solid #21262d; }
+.step-params .param-row { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+.step-params .param-row label { font-size:11px; color:#8b949e; min-width:80px; }
+.step-params .param-row input { flex:1; font-size:12px; padding:3px 6px; }
+.fieldmap-row { display:flex; gap:4px; align-items:center; margin-bottom:3px; }
+.fieldmap-row input { flex:1; font-size:11px; padding:3px 5px; font-family:'SF Mono',Monaco,Consolas,monospace; }
+.fieldmap-row .arrow { color:#484f58; font-size:11px; }
+.add-step-row { display:flex; gap:6px; margin-top:6px; }
+.add-step-row select { flex:1; font-size:12px; padding:4px 6px; }
+.add-step-row button { background:#238636; border:none; color:#fff; padding:4px 10px; border-radius:4px; font-size:12px; cursor:pointer; white-space:nowrap; }
+.slider-row { margin-bottom:8px; }
+.slider-row .slider-header { display:flex; justify-content:space-between; margin-bottom:2px; }
+.slider-row label { font-size:11px; color:#8b949e; }
+.slider-row .slider-val { font-size:12px; color:#58a6ff; font-family:'SF Mono',Monaco,Consolas,monospace; }
+.slider-row input[type="range"] { width:100%; accent-color:#58a6ff; }
+.main-panel { display:grid; grid-template-rows:1fr auto; overflow:hidden; }
+.preview { overflow:auto; padding:16px; background:#0d1117; }
+.preview::-webkit-scrollbar { width:6px; }
+.preview::-webkit-scrollbar-thumb { background:#30363d; border-radius:3px; }
+.preview pre { font-family:'SF Mono',Monaco,Consolas,monospace; font-size:12px; line-height:1.5; white-space:pre; tab-size:2; }
+.json-key { color:#79c0ff; }
+.json-string { color:#a5d6ff; }
+.json-number { color:#79c0ff; }
+.json-bool { color:#ff7b72; }
+.json-null { color:#8b949e; }
+.json-bracket { color:#c9d1d9; }
+.prompt-panel { background:#161b22; border-top:1px solid #30363d; padding:12px 16px; max-height:200px; overflow-y:auto; }
+.prompt-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.prompt-header h3 { font-size:12px; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; }
+.copy-btn { background:#21262d; border:1px solid #30363d; color:#c9d1d9; padding:4px 12px; border-radius:4px; font-size:12px; cursor:pointer; transition:all .15s; }
+.copy-btn:hover { border-color:#58a6ff; color:#58a6ff; }
+.copy-btn.copied { background:#23863633; border-color:#238636; color:#3fb950; }
+.prompt-text { font-size:13px; line-height:1.6; color:#c9d1d9; }
+.stats-bar { display:flex; gap:12px; padding:0 16px; align-items:center; }
+.stat { font-size:11px; color:#8b949e; }
+.stat span { color:#58a6ff; font-weight:600; }
+.fieldmap-section { margin-top:4px; }
+.fieldmap-label { font-size:10px; color:#8b949e; text-transform:uppercase; margin-bottom:3px; letter-spacing:.5px; }
+.fields-list { display:flex; flex-wrap:wrap; gap:3px; margin-top:4px; }
+.fields-list .field-chip { background:#21262d; padding:2px 6px; border-radius:3px; font-size:11px; font-family:'SF Mono',Monaco,Consolas,monospace; color:#a5d6ff; cursor:pointer; }
+.fields-list .field-chip:hover { background:#30363d; }
+.fields-list .field-chip.selected { background:#1f6feb33; border:1px solid #58a6ff; color:#58a6ff; }
+.empty-state { color:#484f58; font-size:12px; text-align:center; padding:16px; font-style:italic; }
+.validation-row { display:flex; gap:4px; align-items:center; margin-top:4px; }
+.validation-row select { font-size:11px; padding:2px 4px; width:auto; }
+.validation-row input { font-size:11px; padding:2px 4px; flex:1; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <h1>SuiteScript IR Builder</h1>
+    <div class="stats-bar">
+      <div class="stat">Fields: <span id="stat-fields">0</span></div>
+      <div class="stat">Steps: <span id="stat-steps">0</span></div>
+      <div class="stat">Targets: <span id="stat-targets">0</span></div>
+    </div>
+    <div class="presets">
+      <button class="preset-btn" onclick="loadPreset('customer_upsert')">Customer Upsert</button>
+      <button class="preset-btn" onclick="loadPreset('simple_lookup')">Simple Lookup</button>
+      <button class="preset-btn" onclick="loadPreset('batch_import')">Batch Import</button>
+      <button class="preset-btn" onclick="loadPreset('blank')">Blank</button>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <!-- Metadata -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Metadata <span class="chevron open">&#9654;</span>
+      </div>
+      <div class="section-body open">
+        <div class="form-row"><label>Use Case Name</label><input id="meta-name" oninput="updateAll()" placeholder="customer_upsert"></div>
+        <div class="form-row"><label>Version</label><input id="meta-version" oninput="updateAll()" placeholder="v1"></div>
+        <div class="form-row"><label>Owner</label><input id="meta-owner" oninput="updateAll()" placeholder="FC/Team"></div>
+      </div>
+    </div>
+
+    <!-- Runtime -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Runtime Targets <span class="chevron open">&#9654;</span>
+      </div>
+      <div class="section-body open">
+        <div class="check-row"><input type="checkbox" id="target-restlet" onchange="updateAll()"><label for="target-restlet">RESTlet (sync API)</label></div>
+        <div class="check-row"><input type="checkbox" id="target-scheduled" onchange="updateAll()"><label for="target-scheduled">Scheduled (async batch)</label></div>
+        <div class="check-row"><input type="checkbox" id="target-mapreduce" onchange="updateAll()"><label for="target-mapreduce">Map/Reduce (governance)</label></div>
+        <div class="check-row"><input type="checkbox" id="target-userevent" onchange="updateAll()"><label for="target-userevent">User Event</label></div>
+        <hr style="border-color:#21262d;margin:8px 0">
+        <div class="toggle-row"><label>Dry Run Default</label><label class="toggle"><input type="checkbox" id="param-dryrun" onchange="updateAll()"><span class="slider"></span></label></div>
+        <div class="form-row" style="margin-top:8px"><label>Log Level</label>
+          <select id="param-loglevel" onchange="updateAll()">
+            <option>DEBUG</option><option selected>INFO</option><option>WARN</option><option>ERROR</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Security <span class="chevron">&#9654;</span>
+      </div>
+      <div class="section-body">
+        <div class="form-row"><label>Mode</label>
+          <select id="sec-mode" onchange="updateAll()">
+            <option value="roleAllowlist">Role Allowlist</option>
+            <option value="none">None (open)</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Allowed Roles</label></div>
+        <div class="chip-row" id="roles-chips"></div>
+        <div class="chip-input">
+          <input id="role-input" placeholder="Add role..." onkeydown="if(event.key==='Enter'){addRole()}">
+          <button onclick="addRole()">+</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input Schema -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Input Schema <span class="chevron open">&#9654;</span>
+      </div>
+      <div class="section-body open" id="schema-fields"></div>
+    </div>
+
+    <!-- Flow Steps -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Flow Steps <span class="chevron open">&#9654;</span>
+      </div>
+      <div class="section-body open">
+        <div id="flow-steps"></div>
+        <div class="add-step-row">
+          <select id="step-catalog">
+            <option value="auth.roleGate">auth.roleGate</option>
+            <option value="validate.schema">validate.schema</option>
+            <option value="record.upsert">record.upsert</option>
+            <option value="record.submitFields">record.submitFields</option>
+            <option value="search.lookup">search.lookup</option>
+            <option value="search.pagedIterator">search.pagedIterator</option>
+            <option value="transform.derive">transform.derive</option>
+            <option value="response.envelope">response.envelope</option>
+            <option value="governance.apply">governance.apply</option>
+            <option value="idempotency.guard">idempotency.guard</option>
+          </select>
+          <button onclick="addStep()">+ Add Step</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Governance -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Governance <span class="chevron">&#9654;</span>
+      </div>
+      <div class="section-body">
+        <div class="slider-row">
+          <div class="slider-header"><label>Page Size</label><span class="slider-val" id="gov-pagesize-val">1000</span></div>
+          <input type="range" id="gov-pagesize" min="100" max="5000" step="100" value="1000" oninput="updateAll()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-header"><label>Batch Size</label><span class="slider-val" id="gov-batchsize-val">200</span></div>
+          <input type="range" id="gov-batchsize" min="10" max="1000" step="10" value="200" oninput="updateAll()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-header"><label>Retries</label><span class="slider-val" id="gov-retries-val">2</span></div>
+          <input type="range" id="gov-retries" min="0" max="5" step="1" value="2" oninput="updateAll()">
+        </div>
+      </div>
+    </div>
+
+    <!-- Observability -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Observability <span class="chevron">&#9654;</span>
+      </div>
+      <div class="section-body">
+        <div class="toggle-row"><label>Correlation ID</label><label class="toggle"><input type="checkbox" id="obs-correlation" checked onchange="updateAll()"><span class="slider"></span></label></div>
+        <div class="toggle-row"><label>Structured Logs</label><label class="toggle"><input type="checkbox" id="obs-structured" checked onchange="updateAll()"><span class="slider"></span></label></div>
+      </div>
+    </div>
+
+    <!-- Extension Hooks -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Extension Hooks <span class="chevron">&#9654;</span>
+      </div>
+      <div class="section-body">
+        <div class="chip-row" id="hooks-chips"></div>
+        <div class="chip-input">
+          <input id="hook-input" placeholder="Hook name..." onkeydown="if(event.key==='Enter'){addHook()}">
+          <button onclick="addHook()">+</button>
+        </div>
+        <p style="font-size:10px;color:#484f58;margin-top:6px">Escape hatch for developer-authored custom functions</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="main-panel">
+    <div class="preview"><pre id="json-output"></pre></div>
+    <div class="prompt-panel">
+      <div class="prompt-header">
+        <h3>Generated Prompt</h3>
+        <button class="copy-btn" onclick="copyPrompt()">Copy Prompt</button>
+      </div>
+      <div class="prompt-text" id="prompt-output"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STEP_CATALOG = {
+  'auth.roleGate': { label:'Auth Role Gate', icon:'🔐', params:[] },
+  'validate.schema': { label:'Validate Input', icon:'✓', params:[] },
+  'record.upsert': { label:'Record Upsert', icon:'💾', params:[
+    {key:'recordType',type:'text',default:'customer',label:'Record Type'},
+    {key:'keyField',type:'text',default:'externalid',label:'Key Field'},
+    {key:'fieldMap',type:'fieldmap',default:{},label:'Field Map'}
+  ]},
+  'record.submitFields': { label:'Submit Fields', icon:'📝', params:[
+    {key:'recordType',type:'text',default:'customer',label:'Record Type'},
+    {key:'recordIdField',type:'text',default:'id',label:'Record ID Field'},
+    {key:'fieldMap',type:'fieldmap',default:{},label:'Field Map'}
+  ]},
+  'search.lookup': { label:'Search Lookup', icon:'🔍', params:[
+    {key:'savedSearchId',type:'text',default:'',label:'Saved Search ID'},
+    {key:'joinKey',type:'text',default:'',label:'Join Key'}
+  ]},
+  'search.pagedIterator': { label:'Paged Search', icon:'📄', params:[
+    {key:'savedSearchId',type:'text',default:'',label:'Saved Search ID'},
+    {key:'columns',type:'chips',default:[],label:'Columns'}
+  ]},
+  'transform.derive': { label:'Derive Fields', icon:'⚙', params:[
+    {key:'derivations',type:'fieldmap',default:{},label:'Derivations (field → expression)'}
+  ]},
+  'response.envelope': { label:'Response Envelope', icon:'📦', params:[
+    {key:'fields',type:'chips',default:[],label:'Output Fields'}
+  ]},
+  'governance.apply': { label:'Apply Governance', icon:'⏱', params:[] },
+  'idempotency.guard': { label:'Idempotency Guard', icon:'🛡', params:[
+    {key:'keyField',type:'text',default:'',label:'Idempotency Key'}
+  ]}
+};
+
+let state = {
+  roles: ['Administrator','Integration'],
+  fields: [],
+  steps: [],
+  hooks: []
+};
+
+// --- Presets ---
+const PRESETS = {
+  customer_upsert: {
+    meta: {name:'customer_upsert',version:'v1',owner:'FC/Team'},
+    targets: {restlet:true,scheduled:true,mapreduce:false,userevent:false},
+    params: {dryRun:true,logLevel:'INFO'},
+    security: {mode:'roleAllowlist'},
+    roles: ['Administrator','Integration'],
+    fields: [
+      {name:'externalId',type:'string',required:true,validation:''},
+      {name:'companyName',type:'string',required:true,validation:''},
+      {name:'subsidiary',type:'number',required:false,validation:''},
+      {name:'class',type:'number',required:false,validation:''}
+    ],
+    steps: [
+      {id:'auth',type:'auth.roleGate',params:{}},
+      {id:'validate',type:'validate.schema',params:{}},
+      {id:'upsertCustomer',type:'record.upsert',params:{
+        recordType:'customer',keyField:'externalid',
+        fieldMap:{companyname:'companyName',subsidiary:'subsidiary',class:'class'}
+      }},
+      {id:'enrich',type:'search.lookup',params:{savedSearchId:'customsearch_customer_enrich',joinKey:'externalId'}},
+      {id:'respond',type:'response.envelope',params:{fields:['id','externalId']}}
+    ],
+    governance:{pageSize:1000,batchSize:200,retries:2},
+    observability:{correlation:true,structured:true},
+    hooks:[]
+  },
+  simple_lookup: {
+    meta:{name:'customer_lookup',version:'v1',owner:'FC/Team'},
+    targets:{restlet:true,scheduled:false,mapreduce:false,userevent:false},
+    params:{dryRun:false,logLevel:'INFO'},
+    security:{mode:'roleAllowlist'},
+    roles:['Administrator'],
+    fields:[{name:'externalId',type:'string',required:true,validation:''}],
+    steps:[
+      {id:'auth',type:'auth.roleGate',params:{}},
+      {id:'validate',type:'validate.schema',params:{}},
+      {id:'search',type:'search.lookup',params:{savedSearchId:'customsearch_customer_lookup',joinKey:'externalId'}},
+      {id:'respond',type:'response.envelope',params:{fields:['id','externalId','companyname','email']}}
+    ],
+    governance:{pageSize:100,batchSize:50,retries:1},
+    observability:{correlation:true,structured:true},
+    hooks:[]
+  },
+  batch_import: {
+    meta:{name:'customer_batch_import',version:'v1',owner:'FC/Team'},
+    targets:{restlet:false,scheduled:true,mapreduce:false,userevent:false},
+    params:{dryRun:true,logLevel:'INFO'},
+    security:{mode:'roleAllowlist'},
+    roles:['Administrator'],
+    fields:[
+      {name:'externalId',type:'string',required:true,validation:''},
+      {name:'companyName',type:'string',required:true,validation:''},
+      {name:'subsidiary',type:'number',required:false,validation:''},
+      {name:'email',type:'string',required:false,validation:'email'},
+      {name:'phone',type:'string',required:false,validation:''}
+    ],
+    steps:[
+      {id:'auth',type:'auth.roleGate',params:{}},
+      {id:'validate',type:'validate.schema',params:{}},
+      {id:'governance',type:'governance.apply',params:{}},
+      {id:'upsert',type:'record.upsert',params:{
+        recordType:'customer',keyField:'externalid',
+        fieldMap:{companyname:'companyName',subsidiary:'subsidiary',email:'email',phone:'phone'}
+      }},
+      {id:'respond',type:'response.envelope',params:{fields:['id','externalId','status']}}
+    ],
+    governance:{pageSize:5000,batchSize:500,retries:3},
+    observability:{correlation:true,structured:true},
+    hooks:[]
+  },
+  blank: {
+    meta:{name:'',version:'v1',owner:''},
+    targets:{restlet:false,scheduled:false,mapreduce:false,userevent:false},
+    params:{dryRun:false,logLevel:'INFO'},
+    security:{mode:'roleAllowlist'},
+    roles:[],
+    fields:[],
+    steps:[],
+    governance:{pageSize:1000,batchSize:200,retries:2},
+    observability:{correlation:true,structured:true},
+    hooks:[]
+  }
+};
+
+function loadPreset(name) {
+  const p = PRESETS[name];
+  document.getElementById('meta-name').value = p.meta.name;
+  document.getElementById('meta-version').value = p.meta.version;
+  document.getElementById('meta-owner').value = p.meta.owner;
+  document.getElementById('target-restlet').checked = p.targets.restlet;
+  document.getElementById('target-scheduled').checked = p.targets.scheduled;
+  document.getElementById('target-mapreduce').checked = p.targets.mapreduce;
+  document.getElementById('target-userevent').checked = p.targets.userevent;
+  document.getElementById('param-dryrun').checked = p.params.dryRun;
+  document.getElementById('param-loglevel').value = p.params.logLevel;
+  document.getElementById('sec-mode').value = p.security.mode;
+  document.getElementById('gov-pagesize').value = p.governance.pageSize;
+  document.getElementById('gov-batchsize').value = p.governance.batchSize;
+  document.getElementById('gov-retries').value = p.governance.retries;
+  document.getElementById('obs-correlation').checked = p.observability.correlation;
+  document.getElementById('obs-structured').checked = p.observability.structured;
+  state.roles = [...p.roles];
+  state.fields = JSON.parse(JSON.stringify(p.fields));
+  state.steps = JSON.parse(JSON.stringify(p.steps));
+  state.hooks = [...p.hooks];
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderRoles(); renderFields(); renderSteps(); updateAll();
+}
+
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.chevron');
+  body.classList.toggle('open');
+  chevron.classList.toggle('open');
+}
+
+// --- Roles ---
+function renderRoles() {
+  const c = document.getElementById('roles-chips');
+  c.innerHTML = state.roles.map((r,i) =>
+    `<div class="chip">${r}<span class="remove" onclick="removeRole(${i})">&times;</span></div>`
+  ).join('');
+}
+function addRole() {
+  const inp = document.getElementById('role-input');
+  const v = inp.value.trim();
+  if(v && !state.roles.includes(v)) { state.roles.push(v); inp.value=''; renderRoles(); updateAll(); }
+}
+function removeRole(i) { state.roles.splice(i,1); renderRoles(); updateAll(); }
+
+// --- Hooks ---
+function renderHooks() {
+  const c = document.getElementById('hooks-chips');
+  c.innerHTML = state.hooks.map((h,i) =>
+    `<div class="chip">${h}<span class="remove" onclick="removeHook(${i})">&times;</span></div>`
+  ).join('');
+}
+function addHook() {
+  const inp = document.getElementById('hook-input');
+  const v = inp.value.trim();
+  if(v && !state.hooks.includes(v)) { state.hooks.push(v); inp.value=''; renderHooks(); updateAll(); }
+}
+function removeHook(i) { state.hooks.splice(i,1); renderHooks(); updateAll(); }
+
+// --- Schema Fields ---
+function renderFields() {
+  const c = document.getElementById('schema-fields');
+  let html = state.fields.map((f,i) => `
+    <div class="schema-field">
+      <div class="field-header">
+        <input value="${f.name}" placeholder="fieldName" style="flex:2" oninput="state.fields[${i}].name=this.value;updateAll()">
+        <select onchange="state.fields[${i}].type=this.value;updateAll()">
+          <option ${f.type==='string'?'selected':''}>string</option>
+          <option ${f.type==='number'?'selected':''}>number</option>
+          <option ${f.type==='boolean'?'selected':''}>boolean</option>
+          <option ${f.type==='date'?'selected':''}>date</option>
+          <option ${f.type==='array'?'selected':''}>array</option>
+        </select>
+        <label style="font-size:11px;white-space:nowrap"><input type="checkbox" ${f.required?'checked':''} onchange="state.fields[${i}].required=this.checked;updateAll()"> req</label>
+        <button class="remove-btn" onclick="removeField(${i})">&times;</button>
+      </div>
+      <div class="field-options">
+        <label>Validation:</label>
+        <select style="width:auto;font-size:11px" onchange="state.fields[${i}].validation=this.value;updateAll()">
+          <option value="" ${!f.validation?'selected':''}>none</option>
+          <option value="email" ${f.validation==='email'?'selected':''}>email</option>
+          <option value="regex" ${f.validation==='regex'?'selected':''}>regex</option>
+          <option value="enum" ${f.validation==='enum'?'selected':''}>enum</option>
+          <option value="range" ${f.validation==='range'?'selected':''}>range</option>
+        </select>
+      </div>
+    </div>
+  `).join('');
+  html += '<button class="add-btn" onclick="addField()">+ Add Input Field</button>';
+  c.innerHTML = html;
+}
+function addField() { state.fields.push({name:'',type:'string',required:false,validation:''}); renderFields(); updateAll(); }
+function removeField(i) { state.fields.splice(i,1); renderFields(); updateAll(); }
+
+// --- Flow Steps ---
+function renderSteps() {
+  const c = document.getElementById('flow-steps');
+  if(state.steps.length === 0) { c.innerHTML = '<div class="empty-state">No flow steps. Add steps below.</div>'; return; }
+  c.innerHTML = state.steps.map((s,i) => {
+    const cat = STEP_CATALOG[s.type] || {label:s.type,icon:'?',params:[]};
+    let paramsHtml = '';
+    if(cat.params.length > 0) {
+      paramsHtml = '<div class="step-params">';
+      cat.params.forEach(p => {
+        const val = (s.params && s.params[p.key]) || p.default;
+        if(p.type === 'text') {
+          paramsHtml += `<div class="param-row"><label>${p.label}</label><input value="${val||''}" oninput="updateStepParam(${i},'${p.key}',this.value)"></div>`;
+        } else if(p.type === 'fieldmap') {
+          const map = (typeof val === 'object' && !Array.isArray(val)) ? val : {};
+          paramsHtml += `<div class="fieldmap-section"><div class="fieldmap-label">${p.label}</div>`;
+          Object.entries(map).forEach(([k,v],mi) => {
+            paramsHtml += `<div class="fieldmap-row">
+              <input value="${k}" placeholder="NS field" oninput="updateFieldMapKey(${i},'${p.key}',${mi},this.value)">
+              <span class="arrow">←</span>
+              <input value="${v}" placeholder="input field" oninput="updateFieldMapVal(${i},'${p.key}',${mi},this.value)">
+              <button class="remove-btn" onclick="removeFieldMapEntry(${i},'${p.key}',${mi})">&times;</button>
+            </div>`;
+          });
+          paramsHtml += `<button class="add-btn" style="font-size:11px;padding:3px" onclick="addFieldMapEntry(${i},'${p.key}')">+ mapping</button></div>`;
+        } else if(p.type === 'chips') {
+          const arr = Array.isArray(val) ? val : [];
+          paramsHtml += `<div class="fieldmap-section"><div class="fieldmap-label">${p.label}</div>`;
+          paramsHtml += `<div class="chip-row">${arr.map((c,ci) =>
+            `<div class="chip">${c}<span class="remove" onclick="removeStepChip(${i},'${p.key}',${ci})">&times;</span></div>`
+          ).join('')}</div>`;
+          paramsHtml += `<div class="chip-input" style="margin-top:4px"><input placeholder="Add..." onkeydown="if(event.key==='Enter'){addStepChip(${i},'${p.key}',this)}"><button onclick="addStepChip(${i},'${p.key}',this.previousElementSibling)">+</button></div></div>`;
+        }
+      });
+      paramsHtml += '</div>';
+    }
+    return `<div class="step-card">
+      <div class="step-header">
+        <span class="step-num">${i+1}</span>
+        <span class="step-type">${s.type}</span>
+        <span class="step-label">${cat.label}</span>
+        ${i>0?`<button class="remove-btn" title="Move up" onclick="moveStep(${i},-1)" style="color:#8b949e;font-size:12px">▲</button>`:''}
+        ${i<state.steps.length-1?`<button class="remove-btn" title="Move down" onclick="moveStep(${i},1)" style="color:#8b949e;font-size:12px">▼</button>`:''}
+        <button class="remove-btn" onclick="removeStep(${i})">&times;</button>
+      </div>
+      ${paramsHtml}
+    </div>`;
+  }).join('');
+}
+
+function addStep() {
+  const sel = document.getElementById('step-catalog');
+  const type = sel.value;
+  const cat = STEP_CATALOG[type];
+  const params = {};
+  cat.params.forEach(p => { params[p.key] = JSON.parse(JSON.stringify(p.default)); });
+  const id = type.split('.')[1] + '_' + (state.steps.length+1);
+  state.steps.push({id,type,params});
+  renderSteps(); updateAll();
+}
+function removeStep(i) { state.steps.splice(i,1); renderSteps(); updateAll(); }
+function moveStep(i,dir) {
+  const j = i+dir;
+  if(j<0||j>=state.steps.length) return;
+  [state.steps[i],state.steps[j]] = [state.steps[j],state.steps[i]];
+  renderSteps(); updateAll();
+}
+function updateStepParam(si,key,val) { if(!state.steps[si].params) state.steps[si].params={}; state.steps[si].params[key]=val; updateAll(); }
+
+function updateFieldMapKey(si,paramKey,mi,newKey) {
+  const map = state.steps[si].params[paramKey];
+  const entries = Object.entries(map);
+  if(mi < entries.length) {
+    const newMap = {};
+    entries.forEach(([k,v],idx) => { newMap[idx===mi?newKey:k] = v; });
+    state.steps[si].params[paramKey] = newMap;
+    updateAll();
+  }
+}
+function updateFieldMapVal(si,paramKey,mi,newVal) {
+  const map = state.steps[si].params[paramKey];
+  const entries = Object.entries(map);
+  if(mi < entries.length) { const key = entries[mi][0]; map[key] = newVal; updateAll(); }
+}
+function removeFieldMapEntry(si,paramKey,mi) {
+  const map = state.steps[si].params[paramKey];
+  const entries = Object.entries(map);
+  entries.splice(mi,1);
+  state.steps[si].params[paramKey] = Object.fromEntries(entries);
+  renderSteps(); updateAll();
+}
+function addFieldMapEntry(si,paramKey) {
+  if(!state.steps[si].params[paramKey]) state.steps[si].params[paramKey] = {};
+  state.steps[si].params[paramKey][''] = '';
+  renderSteps(); updateAll();
+}
+function addStepChip(si,paramKey,inp) {
+  const v = inp.value.trim();
+  if(!v) return;
+  if(!Array.isArray(state.steps[si].params[paramKey])) state.steps[si].params[paramKey] = [];
+  state.steps[si].params[paramKey].push(v);
+  inp.value = '';
+  renderSteps(); updateAll();
+}
+function removeStepChip(si,paramKey,ci) {
+  state.steps[si].params[paramKey].splice(ci,1);
+  renderSteps(); updateAll();
+}
+
+// --- Build IR JSON ---
+function buildIR() {
+  const targets = [];
+  if(document.getElementById('target-restlet').checked) targets.push('restlet');
+  if(document.getElementById('target-scheduled').checked) targets.push('scheduled');
+  if(document.getElementById('target-mapreduce').checked) targets.push('mapreduce');
+  if(document.getElementById('target-userevent').checked) targets.push('userevent');
+
+  const schema = {};
+  state.fields.forEach(f => {
+    if(!f.name) return;
+    const def = {type:f.type, required:f.required};
+    if(f.validation) def.validation = f.validation;
+    schema[f.name] = def;
+  });
+
+  const flow = state.steps.map(s => {
+    const step = {id:s.id, type:s.type};
+    if(s.params && Object.keys(s.params).length > 0) {
+      const cleanParams = {};
+      Object.entries(s.params).forEach(([k,v]) => {
+        if(typeof v === 'string' && v === '') return;
+        if(typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) return;
+        if(Array.isArray(v) && v.length === 0) return;
+        cleanParams[k] = v;
+      });
+      if(Object.keys(cleanParams).length > 0) step.params = cleanParams;
+    }
+    return step;
+  });
+
+  const savedSearches = [];
+  state.steps.forEach(s => {
+    if(s.params?.savedSearchId) savedSearches.push(s.params.savedSearchId);
+  });
+
+  const ir = {
+    irVersion: '1.0',
+    metadata: {
+      name: document.getElementById('meta-name').value || 'unnamed',
+      version: document.getElementById('meta-version').value || 'v1',
+      owner: document.getElementById('meta-owner').value || ''
+    },
+    runtime: {
+      targets,
+      scriptParams: {
+        dryRun: document.getElementById('param-dryrun').checked,
+        logLevel: document.getElementById('param-loglevel').value
+      }
+    },
+    security: {
+      mode: document.getElementById('sec-mode').value,
+      ...(document.getElementById('sec-mode').value === 'roleAllowlist' ? {allowedRoles: [...state.roles]} : {})
+    },
+    input: { schema },
+    flow: { steps: flow },
+    governance: {
+      pageSize: parseInt(document.getElementById('gov-pagesize').value),
+      batchSize: parseInt(document.getElementById('gov-batchsize').value),
+      retries: parseInt(document.getElementById('gov-retries').value)
+    },
+    observability: {
+      correlationId: document.getElementById('obs-correlation').checked ? 'auto' : 'none',
+      structuredLogs: document.getElementById('obs-structured').checked
+    },
+    dependencies: {
+      savedSearches: [...new Set(savedSearches)],
+      customFields: []
+    },
+    extensionHooks: [...state.hooks]
+  };
+  return ir;
+}
+
+// --- Syntax highlight JSON ---
+function highlightJSON(obj) {
+  const json = JSON.stringify(obj, null, 2);
+  return json.replace(/("(?:\\.|[^"\\])*")\s*:/g, '<span class="json-key">$1</span>:')
+    .replace(/:\s*("(?:\\.|[^"\\])*")/g, ': <span class="json-string">$1</span>')
+    .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
+    .replace(/:\s*(true|false)/g, ': <span class="json-bool">$1</span>')
+    .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>')
+    .replace(/[\[\]{}]/g, '<span class="json-bracket">$&</span>');
+}
+
+// --- Prompt generation ---
+function generatePrompt(ir) {
+  const parts = [];
+  parts.push(`Build a SuiteScript generator bundle for "${ir.metadata.name}" (${ir.metadata.version}).`);
+
+  const targetNames = {restlet:'RESTlet (sync API)',scheduled:'Scheduled Script (async batch)',mapreduce:'Map/Reduce',userevent:'User Event'};
+  if(ir.runtime.targets.length > 0) {
+    parts.push(`\nTargets: ${ir.runtime.targets.map(t => targetNames[t]||t).join(', ')}.`);
+  }
+
+  const fieldCount = Object.keys(ir.input.schema).length;
+  if(fieldCount > 0) {
+    const required = Object.entries(ir.input.schema).filter(([,v])=>v.required).map(([k])=>k);
+    const optional = Object.entries(ir.input.schema).filter(([,v])=>!v.required).map(([k])=>k);
+    let fieldDesc = `\nInput: ${fieldCount} fields`;
+    if(required.length) fieldDesc += ` (required: ${required.join(', ')})`;
+    if(optional.length) fieldDesc += ` (optional: ${optional.join(', ')})`;
+    parts.push(fieldDesc + '.');
+  }
+
+  if(ir.flow.steps.length > 0) {
+    const stepDesc = ir.flow.steps.map(s => {
+      const cat = STEP_CATALOG[s.type];
+      let desc = s.type;
+      if(s.type === 'record.upsert' && s.params?.recordType) desc += ` ${s.params.recordType} on ${s.params.keyField||'key'}`;
+      if(s.type === 'search.lookup' && s.params?.savedSearchId) desc += ` via ${s.params.savedSearchId}`;
+      if(s.type === 'response.envelope' && s.params?.fields) desc += ` [${s.params.fields.join(',')}]`;
+      return desc;
+    });
+    parts.push(`\nFlow (${ir.flow.steps.length} steps): ${stepDesc.join(' → ')}.`);
+  }
+
+  if(ir.security.mode === 'roleAllowlist' && ir.security.allowedRoles?.length) {
+    parts.push(`\nSecurity: Role allowlist — ${ir.security.allowedRoles.join(', ')}.`);
+  }
+
+  parts.push(`\nGovernance: pageSize=${ir.governance.pageSize}, batchSize=${ir.governance.batchSize}, retries=${ir.governance.retries}.`);
+
+  if(ir.runtime.scriptParams.dryRun) parts.push('\nDry-run mode enabled by default.');
+  if(ir.observability.correlationId === 'auto') parts.push('Auto correlation ID injection.');
+  if(ir.observability.structuredLogs) parts.push('Structured JSON logging.');
+
+  if(ir.dependencies.savedSearches.length > 0) {
+    parts.push(`\nDependencies: saved searches [${ir.dependencies.savedSearches.join(', ')}].`);
+  }
+
+  if(ir.extensionHooks.length > 0) {
+    parts.push(`\nExtension hooks: ${ir.extensionHooks.join(', ')}.`);
+  }
+
+  parts.push(`\n\nGenerate: edge adapter(s), use-case module, shared core library, manifest, and README. Follow thin-edge/thick-core pattern — edge files wire into core runner.run(ir, context).`);
+
+  return parts.join('');
+}
+
+// --- Update all ---
+function updateAll() {
+  // Slider labels
+  document.getElementById('gov-pagesize-val').textContent = document.getElementById('gov-pagesize').value;
+  document.getElementById('gov-batchsize-val').textContent = document.getElementById('gov-batchsize').value;
+  document.getElementById('gov-retries-val').textContent = document.getElementById('gov-retries').value;
+
+  // Stats
+  document.getElementById('stat-fields').textContent = state.fields.filter(f=>f.name).length;
+  document.getElementById('stat-steps').textContent = state.steps.length;
+  const tc = [
+    document.getElementById('target-restlet').checked,
+    document.getElementById('target-scheduled').checked,
+    document.getElementById('target-mapreduce').checked,
+    document.getElementById('target-userevent').checked
+  ].filter(Boolean).length;
+  document.getElementById('stat-targets').textContent = tc;
+
+  // JSON preview
+  const ir = buildIR();
+  document.getElementById('json-output').innerHTML = highlightJSON(ir);
+
+  // Prompt
+  document.getElementById('prompt-output').textContent = generatePrompt(ir);
+}
+
+function copyPrompt() {
+  const text = document.getElementById('prompt-output').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy Prompt'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+// --- Init ---
+renderRoles(); renderHooks();
+loadPreset('customer_upsert');
+// Open default sections
+document.querySelectorAll('.section-body.open').forEach(b => b.style.display = 'block');
+</script>
+</body>
+</html>

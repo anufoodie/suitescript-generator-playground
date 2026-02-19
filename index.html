@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SuiteScript Generator — Exploration Playgrounds</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#0d1117; color:#c9d1d9; min-height:100vh; padding:40px 20px; }
+.container { max-width:800px; margin:0 auto; }
+h1 { font-size:28px; color:#c9d1d9; margin-bottom:8px; }
+.subtitle { font-size:16px; color:#8b949e; margin-bottom:32px; line-height:1.5; }
+.card-grid { display:grid; gap:16px; margin-bottom:40px; }
+.card { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:24px; text-decoration:none; transition:all .2s; display:block; }
+.card:hover { border-color:#58a6ff; transform:translateY(-2px); box-shadow:0 4px 20px rgba(88,166,255,.1); }
+.card h2 { font-size:20px; color:#58a6ff; margin-bottom:8px; }
+.card .desc { font-size:14px; color:#8b949e; line-height:1.6; margin-bottom:12px; }
+.card .features { display:flex; flex-wrap:wrap; gap:6px; }
+.tag { background:#21262d; border:1px solid #30363d; padding:3px 10px; border-radius:12px; font-size:12px; color:#c9d1d9; }
+.context { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:24px; margin-bottom:24px; }
+.context h3 { font-size:16px; color:#c9d1d9; margin-bottom:12px; }
+.context p, .context li { font-size:14px; color:#8b949e; line-height:1.7; }
+.context ul { padding-left:20px; margin:8px 0; }
+.context code { background:#21262d; padding:2px 6px; border-radius:4px; font-size:13px; color:#79c0ff; font-family:'SF Mono',Monaco,Consolas,monospace; }
+.divider { border:none; border-top:1px solid #21262d; margin:24px 0; }
+.footer { font-size:12px; color:#484f58; text-align:center; margin-top:32px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>SuiteScript Generator</h1>
+  <p class="subtitle">Interactive playgrounds for exploring the non-LLM, deterministic SuiteScript generator architecture.<br>FC UI &rarr; IR (Intermediate Representation) &rarr; Code + Deploy Bundle.</p>
+
+  <div class="card-grid">
+    <a class="card" href="ir-builder.html">
+      <h2>IR Builder</h2>
+      <p class="desc">Prototype of the FC authoring experience. Configure input fields, flow steps, governance, and security — see the IR JSON update live. Proves that constrained UI controls can express the full range of scripting needs.</p>
+      <div class="features">
+        <span class="tag">Input Schema</span>
+        <span class="tag">Flow Steps</span>
+        <span class="tag">Field Maps</span>
+        <span class="tag">Governance</span>
+        <span class="tag">4 Presets</span>
+        <span class="tag">Live JSON</span>
+        <span class="tag">Prompt Export</span>
+      </div>
+    </a>
+    <a class="card" href="architecture-map.html">
+      <h2>Architecture Map</h2>
+      <p class="desc">Visual map of the full system — 22 components across 5 layers with 27 connections showing assembly rules, data flow, and the thin-edge/thick-core pattern. Click components to add implementation notes.</p>
+      <div class="features">
+        <span class="tag">5 Layers</span>
+        <span class="tag">22 Components</span>
+        <span class="tag">6 Presets</span>
+        <span class="tag">Assembly Rules</span>
+        <span class="tag">Click-to-Comment</span>
+        <span class="tag">Zoom/Pan</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="context">
+    <h3>What is this?</h3>
+    <p>We're exploring a <strong>low-code compiler for NetSuite SuiteScript</strong>. The idea: functional consultants configure behavior through a constrained UI (no freeform code), which outputs a versioned JSON IR. A deterministic generator then assembles working scripts from a curated component library.</p>
+    <hr class="divider">
+    <h3>How to use these playgrounds</h3>
+    <ul>
+      <li><strong>IR Builder</strong> — Start with the "Customer Upsert" preset. Modify fields, add/remove flow steps, tweak governance. Watch the JSON update. The bottom prompt captures your config in natural language — copy it back into Claude to generate the actual code.</li>
+      <li><strong>Architecture Map</strong> — Start with "Full System" to see everything. Try "Thin Edge" to see just the edge-script-to-runner pattern. Try "Assembly Rules" to see how IR step types map to core components. Click any box to add notes — they feed into a copyable prompt.</li>
+    </ul>
+    <hr class="divider">
+    <h3>Core Architecture</h3>
+    <ul>
+      <li><strong>FC UI</strong> — Constrained authoring layer. No direct code templating. Outputs versioned IR JSON.</li>
+      <li><strong>IR</strong> — Single source of truth. Strict JSON schema, versioned, diffable, testable. Step graph (linear + simple branching for v1).</li>
+      <li><strong>Component Library</strong> — 12 curated primitives: Runner, Logger, ErrorMapper, AuthRoleGate, InputValidator, RecordDAL, SearchDAL, Transform, ResponseEnvelope, GovernancePolicy, IdempotencyGuard, CorrelationId.</li>
+      <li><strong>Generator</strong> — Consumes IR, chooses components, writes: edge adapter scripts, use-case module, manifest, and README.</li>
+      <li><strong>Thin Edge / Thick Core</strong> — Edge scripts (RESTlet, Scheduled, etc.) are tiny wrappers that call <code>runner.run(ir, context)</code>. All logic lives in core.</li>
+    </ul>
+    <hr class="divider">
+    <h3>POC Scope</h3>
+    <p><strong>Use case:</strong> Customer Upsert + Enrichment + Classification</p>
+    <p><strong>Targets:</strong> RESTlet (sync API) + Scheduled (async batch)</p>
+    <p><strong>Success criteria:</strong> FC config changes (field mapping/validation) require zero code changes. Same IR generates both script types.</p>
+  </div>
+
+  <div class="context">
+    <h3>V1 Constraints (what's allowed)</h3>
+    <ul>
+      <li>Validation: required/type/enum/range/regex</li>
+      <li>Mappings: input &rarr; fieldMap, constants, simple transforms (concat/date math/substring)</li>
+      <li>Conditional routing: if/then on input fields</li>
+      <li>Ops: upsert, submitFields, search lookup enrich (paged)</li>
+      <li>Response shaping: selected fields, standard envelope</li>
+      <li>Governance: pageSize/batchSize/retries</li>
+    </ul>
+    <p style="margin-top:8px"><strong>Not allowed (v1):</strong> arbitrary loops, custom algorithms, freeform code in UI.</p>
+    <p><strong>Escape hatch:</strong> <code>extensionHooks[]</code> for developer-authored custom functions.</p>
+  </div>
+
+  <p class="footer">Built with Claude Code &middot; Self-contained HTML &middot; No dependencies</p>
+</div>
+</body>
+</html>
